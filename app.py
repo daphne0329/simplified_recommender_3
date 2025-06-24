@@ -20,8 +20,8 @@ topic_mapping = {
 @app.route("/generate-recommendation", methods=["POST"])
 def generate_recommendation():
     data = request.get_json()
-    preferred_code = data.get("preferred")
-    non_preferred_code = data.get("non_preferred")
+    preferred_code = int(data.get("preferred"))
+    non_preferred_code = int(data.get("non_preferred"))
 
     preferred_topic = topic_mapping.get(preferred_code)
     non_preferred_topic = topic_mapping.get(non_preferred_code)
