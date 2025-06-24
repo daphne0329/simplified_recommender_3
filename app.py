@@ -1,63 +1,67 @@
 from flask import Flask, request, jsonify
 import pandas as pd
 import random
+import os
 from datetime import datetime
 
 app = Flask(__name__)
 
-# 加载数据集（你已设为含标题、摘要、Topic、图片等字段）
-dataset = pd.read_excel("Enhanced_Dataset_OpenAI_Simplified_3.xlsx")
+# 读取数据集
+df = pd.read_excel("Enhanced_Dataset_OpenAI_Simplified_3.xlsx")
 
-@app.route('/generate-recommendation', methods=['POST'])
+@app.route("/generate-recommendation", methods=["POST"])
 def generate_recommendation():
     data = request.get_json()
 
-    # 获取来自 Qualtrics 的 POST 字段（字符串类型的主题）
-    preferred = data.get("preferred")          # 例："Technology"
-    non_preferred = data.get("non_preferred")  # 例："Politics"
+    # 直接获取字符串格式的主题名（如 "Technology"、"Politics"）
+    preferred_topic = data.get("preferred")
+    non_preferred_topic = data.get("non_preferred")
 
-    # 安全检查
-    if not preferred or not non_preferred:
-        return jsonify({"error": "Missing required parameters."}), 400
+    if not preferred_topic or not non_preferred_topic:
+        return jsonify({"error": "Invalid topic string(s)."}), 400
 
-    # 获取当前日期
-    today_str = datetime.today().strftime("%B %d, %Y")
+    # Preferred 推荐逻辑
+    prefer_df = df[df["Internal Topic"] == preferred_topic]
+    if len(prefer_df) < 6:
+        return jsonify({"error": "Not enough preferred articles."}), 400
+    prefer_selected = prefer_df.sample(n=6, random_state=random.randint(1, 10000))
 
-    # 从 Internal Topic == preferred 的文章中随机选 6 篇
-    preferred_pool = dataset[dataset["Internal Topic"] == preferred]
-    prefer_articles = preferred_pool.sample(n=6, random_state=random.randint(0, 10000))
-
-    # 从 Internal Topic == "Hybrid" 且 Primary Topic == non_preferred 的文章中
-    # 选出与 preferred 相关性最高的前10%，再随机抽取2篇
-    hybrid_pool = dataset[
-        (dataset["Internal Topic"] == "Hybrid") &
-        (dataset["Primary Topic"] == non_preferred)
+    # Serendipitous 推荐逻辑
+    seren_df = df[
+        (df["Primary Topic"] == non_preferred_topic) &
+        (df["Internal Topic"] == "Hybrid")
     ]
+    relevance_col = f"Relevance_{preferred_topic}"
+    if relevance_col not in seren_df.columns:
+        return jsonify({"error": f"Missing relevance score: {relevance_col}"}), 400
 
-    top_10_percent = int(0.1 * len(hybrid_pool))
-    top_hybrid = hybrid_pool.sort_values(
-        by=f"Relevance_{preferred}", ascending=False
-    ).head(top_10_percent)
+    seren_df_sorted = seren_df.sort_values(by=relevance_col, ascending=False)
+    top_10pct_count = max(1, int(len(seren_df_sorted) * 0.10))
+    top_seren_df = seren_df_sorted.head(top_10pct_count)
 
-    seren_articles = top_hybrid.sample(n=2, random_state=random.randint(0, 10000))
+    if len(top_seren_df) < 2:
+        return jsonify({"error": "Not enough serendipitous articles."}), 400
+    seren_selected = top_seren_df.sample(n=2, random_state=random.randint(1, 10000))
 
-    # 构建返回 JSON（字段名必须与 Qualtrics 中 Embedded Data 完全一致）
-    result = {
-        "Today": today_str,
-    }
+    # 构建返回结果
+    response = {}
+    for i, (_, row) in enumerate(prefer_selected.iterrows(), 1):
+        response[f"Prefer_Article{i}_Title"] = row["Title"]
+        response[f"Prefer_Article{i}_Summary"] = row["Content Summary"]
+        response[f"Prefer_Article{i}_Topic"] = row["Primary Topic"]
+        response[f"Prefer_Article{i}_Picture"] = row["Picture"]
 
-    for i, row in prefer_articles.reset_index(drop=True).iterrows():
-        idx = i + 1
-        result[f"Prefer_Article{idx}_Title"] = row["Title"]
-        result[f"Prefer_Article{idx}_Summary"] = row["Content Summary"]
-        result[f"Prefer_Article{idx}_Topic"] = row["Primary Topic"]
-        result[f"Prefer_Article{idx}_Picture"] = row["Picture"]
+    for i, (_, row) in enumerate(seren_selected.iterrows(), 1):
+        response[f"Seren_Article{i}_Title"] = row["Title"]
+        response[f"Seren_Article{i}_Summary"] = row["Content Summary"]
+        response[f"Seren_Article{i}_Topic"] = row["Primary Topic"]
+        response[f"Seren_Article{i}_Picture"] = row["Picture"]
 
-    for i, row in seren_articles.reset_index(drop=True).iterrows():
-        idx = i + 1
-        result[f"Seren_Article{idx}_Title"] = row["Title"]
-        result[f"Seren_Article{idx}_Summary"] = row["Content Summary"]
-        result[f"Seren_Article{idx}_Topic"] = row["Primary Topic"]
-        result[f"Seren_Article{idx}_Picture"] = row["Picture"]
+    # 添加当前日期（格式为 YYYY-MM-DD）
+    response["Today"] = datetime.today().strftime("%Y-%m-%d")
 
-    return jsonify(result)
+    return jsonify(response)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port)
