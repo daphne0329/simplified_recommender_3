@@ -2,12 +2,14 @@ from flask import Flask, request, jsonify
 import pandas as pd
 import random
 import os
+from datetime import datetime
 
 app = Flask(__name__)
 
 # 读取数据集
 df = pd.read_excel("Enhanced_Dataset_OpenAI_Simplified_3.xlsx")
 
+# 主题编号映射
 topic_mapping = {
     1: "Politics",
     2: "Sports",
@@ -27,14 +29,17 @@ def generate_recommendation():
     if not preferred_topic or not non_preferred_topic:
         return jsonify({"error": "Invalid topic code(s)."}), 400
 
-    # Preferred
+    # Preferred 推荐逻辑
     prefer_df = df[df["Internal Topic"] == preferred_topic]
     if len(prefer_df) < 6:
         return jsonify({"error": "Not enough preferred articles."}), 400
     prefer_selected = prefer_df.sample(n=6, random_state=random.randint(1, 10000))
 
-    # Serendipitous
-    seren_df = df[(df["Primary Topic"] == non_preferred_topic) & (df["Internal Topic"] == "Hybrid")]
+    # Serendipitous 推荐逻辑
+    seren_df = df[
+        (df["Primary Topic"] == non_preferred_topic) &
+        (df["Internal Topic"] == "Hybrid")
+    ]
     relevance_col = f"Relevance_{preferred_topic}"
     if relevance_col not in seren_df.columns:
         return jsonify({"error": f"Missing relevance score: {relevance_col}"}), 400
@@ -47,7 +52,7 @@ def generate_recommendation():
         return jsonify({"error": "Not enough serendipitous articles."}), 400
     seren_selected = top_seren_df.sample(n=2, random_state=random.randint(1, 10000))
 
-    # Response
+    # 构建返回结果
     response = {}
     for i, (_, row) in enumerate(prefer_selected.iterrows(), 1):
         response[f"Prefer_Article{i}_Title"] = row["Title"]
@@ -60,6 +65,9 @@ def generate_recommendation():
         response[f"Seren_Article{i}_Summary"] = row["Content Summary"]
         response[f"Seren_Article{i}_Topic"] = row["Primary Topic"]
         response[f"Seren_Article{i}_Picture"] = row["Picture"]
+
+    # 添加当前日期
+    response["Today"] = datetime.today().strftime("%Y-%m-%d")
 
     return jsonify(response)
 
