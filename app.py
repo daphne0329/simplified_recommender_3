@@ -9,16 +9,25 @@ app = Flask(__name__)
 # 读取数据集
 df = pd.read_excel("Enhanced_Dataset_OpenAI_Simplified_3.xlsx")
 
+# 主题编号映射
+topic_mapping = {
+    1: "Politics",
+    2: "Sports",
+    3: "Entertainment",
+    4: "Technology"
+}
+
 @app.route("/generate-recommendation", methods=["POST"])
 def generate_recommendation():
     data = request.get_json()
+    preferred_code = data.get("preferred")
+    non_preferred_code = data.get("non_preferred")
 
-    # 直接获取字符串格式的主题名（如 "Technology"、"Politics"）
-    preferred_topic = data.get("preferred")
-    non_preferred_topic = data.get("non_preferred")
+    preferred_topic = topic_mapping.get(preferred_code)
+    non_preferred_topic = topic_mapping.get(non_preferred_code)
 
     if not preferred_topic or not non_preferred_topic:
-        return jsonify({"error": "Invalid topic string(s)."}), 400
+        return jsonify({"error": "Invalid topic code(s)."}), 400
 
     # Preferred 推荐逻辑
     prefer_df = df[df["Internal Topic"] == preferred_topic]
@@ -57,7 +66,7 @@ def generate_recommendation():
         response[f"Seren_Article{i}_Topic"] = row["Primary Topic"]
         response[f"Seren_Article{i}_Picture"] = row["Picture"]
 
-    # 添加当前日期（格式为 YYYY-MM-DD）
+    # 添加当前日期
     response["Today"] = datetime.today().strftime("%Y-%m-%d")
 
     return jsonify(response)
